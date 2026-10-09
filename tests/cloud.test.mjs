@@ -8,6 +8,7 @@ import { join, dirname, relative } from 'node:path';
 import { adaptClient, initializeCloudDatabase, cloudSettings } from '../lib/cloud-database.mjs';
 import { createVercelHandler, deploymentHosts } from '../lib/vercel-handler.mjs';
 import { spawnSync } from 'node:child_process';
+import { setupDiagnostic } from '../lib/setup-errors.mjs';
 
 const initialPassword = 'initial-cloud-password-2026';
 const env = { VERCEL_URL: 'preview.example.vercel.app', VERCEL_PROJECT_PRODUCTION_URL: 'survey.example', ADMIN_INITIAL_PASSWORD: initialPassword };
@@ -38,7 +39,9 @@ test('hosted configuration refuses local storage and untrusted origins', () => {
 test('async database initialization, shared rate limits and atomic rollback', async () => {
   const f = fixture();
   try {
-    const first = await initializeCloudDatabase(f.connect(), env);
+    const first = f.connect();
+    await assert.rejects(initializeCloudDatabase(first, {}), error => error.code === 'ADMIN_PASSWORD_MISSING_OR_INVALID');
+    await initializeCloudDatabase(first, env);
     const hash = (await first.prepare('SELECT password_hash FROM admins').get()).password_hash;
     const second = await initializeCloudDatabase(f.connect(), { ...env, ADMIN_INITIAL_PASSWORD: 'different-initial-password' });
     assert.equal((await second.prepare('SELECT COUNT(*) AS n FROM admins').get()).n, 1);
@@ -54,6 +57,29 @@ test('async database initialization, shared rate limits and atomic rollback', as
     ]));
     assert.equal((await first.prepare('SELECT version FROM surveys').get()).version, 1);
   } finally { await f.cleanup(); }
+});
+
+test('missing setup is explained safely and failed initialization can retry', async () => {
+  const missing = () => cloudSettings({ TURSO_DATABASE_URL: 'libsql://example.turso.io' });
+  assert.throws(missing, error => error.code === 'DATABASE_CONFIG_MISSING' && error.message.includes('TURSO_AUTH_TOKEN') && !error.message.includes('example.turso.io'));
+  const authError = new Error('sensitive-token-value'); authError.cause = { status: 401 };
+  assert.equal(setupDiagnostic(authError).code, 'DATABASE_AUTH_FAILED');
+  assert(!JSON.stringify(setupDiagnostic(authError)).includes('sensitive-token-value'));
+  assert(!JSON.stringify(setupDiagnostic(new Error('secret-url-value'))).includes('secret-url-value'));
+  let attempts = 0;
+  const handler = createVercelHandler({ env, openDatabase: async () => { attempts++; cloudSettings({}); } });
+  async function invoke(url) {
+    const response = { setHeader() {}, writeHead(status) { this.status = status; }, end(text) { this.value = JSON.parse(text); } };
+    await handler({ url, method: 'GET', headers: { host: 'survey.example' } }, response);
+    return response;
+  }
+  const health = await invoke('/api/health');
+  assert.equal(health.status, 503); assert.equal(health.value.ok, false);
+  assert.equal(health.value.code, 'DATABASE_CONFIG_MISSING');
+  assert(health.value.error.includes('TURSO_DATABASE_URL'));
+  const publicResult = await invoke('/api/public/surveys/genai');
+  assert.equal(attempts, 2); assert.equal(publicResult.status, 503);
+  assert(!publicResult.value.error.includes('TURSO_'));
 });
 
 test('Vercel handler: private data, parsed bodies, concurrency, password revocation and restart', async () => {

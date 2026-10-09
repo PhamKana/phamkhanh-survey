@@ -60,6 +60,6 @@ Chạy local với SQLite như trước bằng `npm start` khi không có `.env`
 
 Mở `/api/health` phải thấy `{"ok":true}`. Chưa đăng nhập mà mở `/api/admin/surveys` phải nhận 401. Thử gửi một lượt khảo sát, xem trong admin, sửa một câu và đổi mật khẩu. Deploy lại rồi kiểm tra dữ liệu vẫn còn. Các file `/data/survey.sqlite`, `/.env` và `/server.mjs` phải trả 404.
 
-Nếu `/api/health` trả 503, kiểm tra URL/token Turso và mật khẩu khởi tạo. Nếu trả 403, kiểm tra `APP_ORIGIN` hoặc các biến hệ thống Vercel. Nếu còn lỗi thiếu `app/pages`, kiểm tra Root Directory, commit đã deploy và xóa cấu hình Next.js cũ.
+Nếu `/api/health` trả 503, đọc `code` và `error`: thông báo sẽ chỉ rõ biến database còn thiếu, URL không hợp lệ, hoặc thiếu mật khẩu khởi tạo admin. Giá trị token và mật khẩu không được trả về. Sau khi sửa Environment Variables, chọn đúng Production/Preview rồi Redeploy; tải lại trang chưa đủ. Nếu trả 403, kiểm tra `APP_ORIGIN` hoặc các biến hệ thống Vercel. Nếu còn lỗi thiếu `app/pages`, kiểm tra Root Directory, commit đã deploy và xóa cấu hình Next.js cũ.
 
 Tài liệu nền tảng: [Vercel Node Functions](https://vercel.com/docs/functions/runtimes/node-js/advanced-node-configuration), [Turso SDK](https://docs.turso.tech/sdk/ts/reference).
