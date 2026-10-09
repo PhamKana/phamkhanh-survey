@@ -1,8 +1,8 @@
 # Survey Studio
 
-**Bản này đã hỗ trợ Vercel + Turso.** Xem [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md) để cấu hình database, tài khoản admin và deploy. Vercel dùng `api/index.js` và `vercel.json`, không chạy `next build`. Build bằng `npm run build`; kiểm tra bằng `npm test` sau khi cài thư viện với `npm ci`.
+**Bản này dùng Neon Postgres tạo và kết nối qua Vercel Storage.** Xem [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md) để gắn database với project, đặt mật khẩu admin và deploy. Vercel tự thêm biến kết nối; ứng dụng tự tạo bảng. Vercel dùng `api/index.js` và `vercel.json`, không chạy `next build`. Build bằng `npm run build`; kiểm tra bằng `npm test` sau khi cài thư viện với `npm ci`.
 
-Web khảo sát có trang trả lời công khai và tài khoản admin riêng. Toàn bộ mã nguồn và tài liệu nằm trong thư mục `app-scan-nh`. Cần Node.js 24 và cài thư viện bằng `npm ci`. Có thể chạy local bằng SQLite hoặc chạy online trên Vercel bằng Turso. Các phần bên dưới mô tả chế độ local; hướng dẫn online nằm trong `DEPLOY-VERCEL.md`.
+Web khảo sát có trang trả lời công khai và tài khoản admin riêng. Toàn bộ mã nguồn và tài liệu nằm trong thư mục `app-scan-nh`. Cần Node.js 24 và cài thư viện bằng `npm ci`. Có thể chạy local bằng SQLite hoặc chạy online bằng Neon Postgres trong Vercel Storage. Các phần bên dưới mô tả chế độ local; hướng dẫn online nằm trong `DEPLOY-VERCEL.md`.
 
 ## Chạy và đăng nhập
 

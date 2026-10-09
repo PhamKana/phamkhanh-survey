@@ -8,7 +8,7 @@ if errorlevel 1 (
 )
 echo Survey: http://localhost:3000/s/genai
 echo Admin:  http://localhost:3000/admin
-if not exist "node_modules\@libsql\client\package.json" (
+if not exist "node_modules\@neondatabase\serverless\package.json" (
   call npm ci
   if errorlevel 1 (
     pause

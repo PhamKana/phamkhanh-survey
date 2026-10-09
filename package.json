@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Khảo sát công khai, quản trị riêng tư; hỗ trợ Vercel với Turso và chạy local với SQLite.",
+  "description": "Khảo sát công khai, quản trị riêng tư; database Neon Postgres tạo trong Vercel Storage và SQLite cho local.",
   "engines": {
     "node": "24.x"
   },
@@ -15,6 +15,9 @@
     "reset-password": "node reset-password.mjs"
   },
   "dependencies": {
-    "@libsql/client": "0.18.0"
+    "@neondatabase/serverless": "1.2.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.8"
   }
 }

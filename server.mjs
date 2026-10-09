@@ -192,7 +192,7 @@ export function createApp({ dataDir = join(root, 'data'), initialPassword, allow
           if (input.version !== row.version) throw httpError(409, 'Khảo sát vừa được cập nhật. Câu trả lời hiện tại vẫn được giữ trên trang; vui lòng trao đổi với quản trị viên trước khi tải lại.');
           const { answers, meta, outcome } = validateSubmission(survey, input);
           const id = randomUUID();
-          const result = await db.prepare(`INSERT INTO responses SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM surveys WHERE id=? AND version=? AND json_extract(config,'$.status')='open') ON CONFLICT(survey_id,submission_key) DO NOTHING`).run(id, row.id, input.submissionKey, row.version, JSON.stringify(answers), JSON.stringify(meta), JSON.stringify(survey), outcome, new Date().toISOString(), row.id, row.version);
+          const result = await db.prepare(`INSERT INTO responses SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM surveys WHERE id=? AND version=? AND ${db.jsonStatusExpression || "json_extract(config,'$.status')"}='open') ON CONFLICT(survey_id,submission_key) DO NOTHING`).run(id, row.id, input.submissionKey, row.version, JSON.stringify(answers), JSON.stringify(meta), JSON.stringify(survey), outcome, new Date().toISOString(), row.id, row.version);
           if (!result.changes) {
             const receipt = await db.prepare('SELECT id FROM responses WHERE survey_id=? AND submission_key=?').get(row.id, input.submissionKey);
             if (receipt) return json(200, { ok: true, receipt: receipt.id });
@@ -211,6 +211,7 @@ export function createApp({ dataDir = join(root, 'data'), initialPassword, allow
       throw httpError(404, 'Không tìm thấy trang.');
     } catch (error) {
       if (String(error.code).startsWith('SQLITE_CONSTRAINT') && /surveys\.slug/.test(error.message)) error = httpError(409, 'Đường dẫn này đã được sử dụng.');
+      if (error.code === '23505' && error.constraint === 'surveys_slug_key') error = httpError(409, 'Đường dẫn này đã được sử dụng.');
       if (!error.status) console.error('Request error:', error.code || error.name);
       if (!res.headersSent) json(error.status || 500, { error: error.status ? error.message : 'Không thể xử lý yêu cầu. Vui lòng thử lại.' });
       else res.end();
@@ -222,7 +223,7 @@ export function createApp({ dataDir = join(root, 'data'), initialPassword, allow
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   if (process.env.VERCEL) throw new Error('Vercel phải gọi api/index.js; không chạy máy chủ local hoặc tạo SQLite tại đây.');
   const port = Number(process.env.PORT || 3000);
-  const database = process.env.TURSO_DATABASE_URL ? await (await import('./lib/cloud-database.mjs')).openCloudDatabase() : undefined;
+  const database = process.env.DATABASE_URL || process.env.POSTGRES_URL ? await (await import('./lib/cloud-database.mjs')).openCloudDatabase() : undefined;
   const app = createApp({ database, hosted: Boolean(database), allowedHosts: [`localhost:${port}`, `127.0.0.1:${port}`, ...(process.env.ALLOWED_HOSTS || '').split(',').filter(Boolean)], secureCookies: process.env.SECURE_COOKIES === 'true' });
   app.server.listen(port, process.env.HOST || '127.0.0.1', () => {
     console.log(`Survey Studio: http://localhost:${port}/s/genai`);

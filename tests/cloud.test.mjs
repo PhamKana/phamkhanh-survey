@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createClient } from '@libsql/client';
+import { PGlite } from '@electric-sql/pglite';
+import { neon, neonConfig } from '@neondatabase/serverless';
 import { createServer, request as httpRequest } from 'node:http';
-import { mkdtempSync, unlinkSync, rmdirSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { join, dirname, relative } from 'node:path';
-import { adaptClient, initializeCloudDatabase, cloudSettings } from '../lib/cloud-database.mjs';
+import { join } from 'node:path';
+import { adaptClient, createNeonClient, initializeCloudDatabase, cloudSettings, postgresQuery } from '../lib/cloud-database.mjs';
 import { createVercelHandler, deploymentHosts } from '../lib/vercel-handler.mjs';
 import { spawnSync } from 'node:child_process';
 import { setupDiagnostic } from '../lib/setup-errors.mjs';
@@ -13,27 +14,47 @@ import { setupDiagnostic } from '../lib/setup-errors.mjs';
 const initialPassword = 'initial-cloud-password-2026';
 const env = { VERCEL_URL: 'preview.example.vercel.app', VERCEL_PROJECT_PRODUCTION_URL: 'survey.example', ADMIN_INITIAL_PASSWORD: initialPassword };
 function fixture() {
-  const dir = mkdtempSync(join(dirname(fileURLToPath(import.meta.url)), 'tmp-cloud-'));
-  const url = `file:${relative(process.cwd(), join(dir, 'test.sqlite')).replaceAll('\\', '/')}`;
-  const clients = [];
-  const connect = () => { const db = adaptClient(createClient({ url })); clients.push(db); return db; };
-  return { connect, cleanup() {
-    clients.forEach(db => db.close());
-    // The native libSQL Windows driver can keep file handles until process exit.
-    // These isolated tmp-cloud-* directories are ignored by Git and never deployed.
-    try { for (const name of readdirSync(dir)) unlinkSync(join(dir, name)); rmdirSync(dir); }
-    catch (error) { if (error.code !== 'EBUSY') throw error; }
-  } };
+  let pg = new PGlite();
+  const previousFetch = neonConfig.fetchFunction;
+  // Use the actual Neon HTTP driver, with an isolated Postgres engine as its endpoint.
+  // This checks parameter serialization, returned types and atomic transaction batches.
+  const execute = async (database, { query, params = [] }) => {
+    const result = await database.query(query, params, { rowMode: 'array' });
+    return {
+      rows: result.rows.map(row => row.map(value => value === null ? null : String(value))),
+      fields: result.fields,
+      rowCount: result.affectedRows ?? result.rows.length,
+      command: query.split(' ')[0], rowAsArray: true,
+    };
+  };
+  neonConfig.fetchFunction = async (_url, options) => {
+    const body = JSON.parse(options.body);
+    try {
+      const result = body.queries ? { results: await pg.transaction(async tx => {
+        const results = []; for (const query of body.queries) results.push(await execute(tx, query)); return results;
+      }) } : await execute(pg, body);
+      return Response.json(result);
+    } catch (error) { return Response.json({ message: error.message, code: error.code, constraint: error.constraint, severity: 'ERROR' }, { status: 400 }); }
+  };
+  const connect = () => adaptClient(createNeonClient(neon('postgresql://test:password@ep-test.neon.tech/neondb')));
+  return {
+    connect,
+    async restart() { const dump = await pg.dumpDataDir(); await pg.close(); pg = await PGlite.create({ loadDataDir: dump }); },
+    async cleanup() { neonConfig.fetchFunction = previousFetch; await pg.close(); },
+  };
 }
 
 test('hosted configuration refuses local storage and untrusted origins', () => {
   assert.throws(() => cloudSettings({}));
-  for (const url of ['file:test.sqlite', 'http://example.com', 'https://user:pass@example.com']) assert.throws(() => cloudSettings({ TURSO_DATABASE_URL: url, TURSO_AUTH_TOKEN: 'token' }));
-  assert.equal(cloudSettings({ TURSO_DATABASE_URL: 'libsql://db.turso.io', TURSO_AUTH_TOKEN: 'token' }).url, 'libsql://db.turso.io');
+  for (const url of ['file:test.sqlite', 'http://example.com', 'https://user:pass@example.com', 'postgresql://user:pass@unsupported.example/db']) assert.throws(() => cloudSettings({ DATABASE_URL: url }));
+  const url = 'postgresql://user:pass@ep-test.neon.tech/neondb?sslmode=require';
+  assert.equal(cloudSettings({ DATABASE_URL: url }).url, url);
+  assert.equal(cloudSettings({ POSTGRES_URL: url }).url, url);
   assert.deepEqual(deploymentHosts({ ...env, APP_ORIGIN: 'https://custom.example' }), ['preview.example.vercel.app', 'survey.example', 'custom.example']);
   assert.throws(() => deploymentHosts({ APP_ORIGIN: 'http://custom.example' }));
   assert.throws(() => deploymentHosts({ APP_ORIGIN: 'https://custom.example/path' }));
   assert.throws(() => deploymentHosts({}));
+  assert.equal(postgresQuery("SELECT '?' AS literal, ? AS value, 'it''s ?' AS text"), "SELECT '?' AS literal, $1 AS value, 'it''s ?' AS text");
 });
 
 test('async database initialization, shared rate limits and atomic rollback', async () => {
@@ -60,8 +81,8 @@ test('async database initialization, shared rate limits and atomic rollback', as
 });
 
 test('missing setup is explained safely and failed initialization can retry', async () => {
-  const missing = () => cloudSettings({ TURSO_DATABASE_URL: 'libsql://example.turso.io' });
-  assert.throws(missing, error => error.code === 'DATABASE_CONFIG_MISSING' && error.message.includes('TURSO_AUTH_TOKEN') && !error.message.includes('example.turso.io'));
+  const missing = () => cloudSettings({});
+  assert.throws(missing, error => error.code === 'DATABASE_CONFIG_MISSING' && error.message.includes('DATABASE_URL') && error.message.includes('Vercel'));
   const authError = new Error('sensitive-token-value'); authError.cause = { status: 401 };
   assert.equal(setupDiagnostic(authError).code, 'DATABASE_AUTH_FAILED');
   assert(!JSON.stringify(setupDiagnostic(authError)).includes('sensitive-token-value'));
@@ -76,10 +97,10 @@ test('missing setup is explained safely and failed initialization can retry', as
   const health = await invoke('/api/health');
   assert.equal(health.status, 503); assert.equal(health.value.ok, false);
   assert.equal(health.value.code, 'DATABASE_CONFIG_MISSING');
-  assert(health.value.error.includes('TURSO_DATABASE_URL'));
+  assert(health.value.error.includes('DATABASE_URL'));
   const publicResult = await invoke('/api/public/surveys/genai');
   assert.equal(attempts, 2); assert.equal(publicResult.status, 503);
-  assert(!publicResult.value.error.includes('TURSO_'));
+  assert(!publicResult.value.error.includes('DATABASE_URL'));
 });
 
 test('Vercel handler: private data, parsed bodies, concurrency, password revocation and restart', async () => {
@@ -128,6 +149,13 @@ test('Vercel handler: private data, parsed bodies, concurrency, password revocat
     const saves = await Promise.all(['one', 'two'].map(title => request('/api/admin/surveys/genai', 'PUT', { ...survey, title }, auth)));
     assert.deepEqual(saves.map(r => r.status).sort(), [200, 409]);
     const version = saves.find(r => r.status === 200).value.version;
+    const createConfig = { ...survey, title: 'Khảo sát Postgres mới', slug: 'neon-created' };
+    const creates = await Promise.all(Array.from({ length: 2 }, () => request('/api/admin/surveys', 'POST', createConfig, auth)));
+    assert.deepEqual(creates.map(r => r.status).sort(), [201, 409]);
+    assert.equal((await request('/api/public/surveys/neon-created')).status, 200);
+    const created = creates.find(r => r.status === 201).value;
+    assert.equal((await request(`/api/admin/surveys/${created.id}`, 'PUT', { ...created, status: 'closed' }, auth)).status, 200);
+    assert.equal((await request('/api/public/surveys/neon-created')).status, 410);
     const payload = { version, answers: { S01: { value: 1 } }, submissionKey: crypto.randomUUID() };
     const submissions = await Promise.all(Array.from({ length: 4 }, () => request('/api/public/surveys/genai/responses', 'POST', payload)));
     assert.deepEqual(submissions.map(r => r.status).sort(), [200, 200, 200, 201]);
@@ -139,10 +167,12 @@ test('Vercel handler: private data, parsed bodies, concurrency, password revocat
     assert.equal((await request('/api/auth/me', 'GET', undefined, other)).status, 401);
     assert.equal((await request('/api/auth/me', 'GET', undefined, auth)).status, 200);
     assert.equal((await request('/api/auth/login', 'POST', { username: 'admin', password: initialPassword })).status, 401);
+    await f.restart();
     handlers[0] = createVercelHandler({ env, openDatabase }); handlers[1] = createVercelHandler({ env, openDatabase });
     const again = await login(newPassword);
     assert.equal((await request('/api/admin/surveys/genai/responses', 'GET', undefined, again)).value.total, 1);
     assert.equal((await request('/api/admin/surveys/genai', 'GET', undefined, again)).value.version, version);
+    assert.equal((await request('/api/admin/surveys', 'GET', undefined, again)).value.length, 2);
   } finally { await new Promise(resolve => server.close(resolve)); await f.cleanup(); }
 });
 
