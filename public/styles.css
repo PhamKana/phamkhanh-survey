@@ -18,3 +18,5 @@
 
 .survey-topbar-actions,.export-actions{display:flex;align-items:center;gap:12px}.survey-topbar-actions .button{letter-spacing:0}.survey-report{display:flex;flex-wrap:wrap;gap:16px 32px;padding:20px 26px;background:#f6f8fc;border-bottom:1px solid var(--line)}.survey-report span{font-size:.85rem;color:var(--muted)}.survey-report strong{display:block;font-size:1.5rem;color:var(--ink);margin-top:4px}@media(max-width:560px){.survey-topbar-actions>span{display:none}.survey-topbar{gap:12px}.detail-toolbar{flex-wrap:wrap}.export-actions{flex-wrap:wrap}}
 .survey-row-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}
+
+.update-notice{padding:13px 16px;background:#edf3ff;border:1px solid #cbdcff;color:#2453ae;border-radius:9px;font-size:.9rem;margin:12px 0}.update-notice .button{margin-top:12px}

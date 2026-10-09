@@ -1,4 +1,4 @@
-import { visibleQuestions, eligibility, timeCheck, answerError, formatValue, displayAnswer } from './logic.mjs';
+import { visibleQuestions, eligibility, timeCheck, answerError, formatValue, displayAnswer, submitSurvey, sameSurveyContent } from './logic.mjs';
 import { editorMarkup, collectEditorForm, blankSurvey, repairReferences, defaultCondition, ruleAt, setRule, operators } from './editor.mjs';
 const app = document.querySelector('#app');
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -68,7 +68,7 @@ function renderQuestion(q) {
   if (q.type === 'allocation') {
     const values = state.allocationDraft[q.id] || a?.value || q.options.map(() => 0);
     const total = values.reduce((s,v) => s+v,0);
-    field = `<div class="allocation-summary" id="allocation-summary-${q.id}">Đã phân bổ <strong>${total}%</strong> · ${total > 100 ? `Vượt ${total-100}%` : `Còn ${100-total}%`}</div><div class="allocation-list">${q.options.map((option,i) => `<div class="allocation-item"><div><label for="alloc-${q.id}-${i}">${i+1}. ${esc(option)}</label><strong id="alloc-value-${q.id}-${i}">${values[i]}%</strong></div><input id="alloc-${q.id}-${i}" type="range" min="0" max="100" step="5" value="${values[i]}" data-question="${q.id}" data-allocation="${i}" aria-label="${esc(option)}"></div>`).join('')}</div><label class="allocation-confirm"><input type="checkbox" data-question="${q.id}" data-confirm="true" ${a?.confirmed ? 'checked' : ''}>Tôi xác nhận các tỷ lệ trên, bao gồm các nhóm 0%.</label>`;
+    field = `<div class="allocation-summary" id="allocation-summary-${q.id}">Đã phân bổ <strong>${total}%</strong> · ${total > 100 ? `Vượt ${total-100}%` : `Còn ${100-total}%`}</div><div class="allocation-list">${q.options.map((option,i) => `<div class="allocation-item"><div><label for="alloc-${q.id}-${i}">${i+1}. ${esc(option)}</label><strong id="alloc-value-${q.id}-${i}">${values[i]}%</strong></div><input id="alloc-${q.id}-${i}" type="range" min="0" max="100" step="5" value="${values[i]}" data-question="${q.id}" data-allocation="${i}" aria-label="${esc(option)}"></div>`).join('')}</div><label class="allocation-confirm"><input type="checkbox" data-question="${q.id}" data-confirm="true" ${a?.confirmed !== false ? 'checked' : ''}>Tôi xác nhận các tỷ lệ trên, bao gồm các nhóm 0%.</label>`;
   }
   if (q.type === 'text') field = `<textarea rows="4" maxlength="5000" placeholder="Câu trả lời của bạn…" data-question="${q.id}" data-text="true">${esc(a?.value || '')}</textarea>`;
   if (q.specials?.length) field += `<div class="specials">${q.specials.map((special,i) => `<label class="option compact ${a?.special === i ? 'selected' : ''}"><input type="radio" name="${q.id}-special" data-question="${q.id}" data-special="${i}" ${a?.special === i ? 'checked' : ''}><span>${esc(special)}</span></label>`).join('')}</div>`;
@@ -146,8 +146,9 @@ function inputAnswer(target) {
   } else if (target.dataset.allocation !== undefined) {
     const values = [...(state.allocationDraft[id] || state.answers[id]?.value || q.options.map(() => 0))];
     values[Number(target.dataset.allocation)] = Number(target.value); state.allocationDraft[id] = values;
-    state.answers[id] = { value: values, confirmed: false, ...(state.answers[id]?.other ? {other:state.answers[id].other} : {}) };
-    document.querySelector(`[data-question="${id}"][data-confirm]`).checked = false;
+    state.answers[id] = { value: values, confirmed: state.answers[id]?.confirmed !== false, ...(state.answers[id]?.other ? {other:state.answers[id].other} : {}) };
+    document.querySelector(`[data-question="${id}"][data-confirm]`).checked = state.answers[id].confirmed;
+    document.getElementById(`error-${id}`).textContent = answerError(q,state.answers[id]) || '';
     document.querySelectorAll(`[data-question="${id}"][data-special]`).forEach(el => { el.checked = false; el.closest('.option').classList.remove('selected'); });
     document.getElementById(`alloc-value-${id}-${target.dataset.allocation}`).textContent = `${target.value}%`;
     const total = values.reduce((s,v) => s+v,0);
@@ -302,15 +303,27 @@ app.addEventListener('click', async event => {
       const q=state.survey.questions.find(q=>q.id===target.dataset.id);
       state.rangeMax[q.id]=Math.min((state.rangeMax[q.id]||q.max)+q.expand,q.cap??Number.MAX_SAFE_INTEGER); renderSurvey();
     }
+    if (action==='refresh-survey') {
+      const latest = await api('/api/public/surveys/' + state.survey.slug);
+      if (!sameSurveyContent(latest, state.survey)) {
+        document.querySelector('#survey-error').innerHTML = '<div class="update-notice" role="alert">Câu hỏi đã thay đổi. Câu trả lời chưa được gửi và vẫn được giữ trên trang này. Vui lòng liên hệ quản trị viên để kiểm tra; đừng tải lại trang.</div>';
+        return;
+      }
+      state.survey = latest;
+      renderSurvey();
+      document.querySelector('#survey-error').innerHTML = '<div class="update-notice" role="status">Đã cập nhật phiên bản khảo sát và giữ nguyên câu trả lời. Anh/chị hãy bấm “Gửi câu trả lời” để gửi lại.</div>';
+    }
     if (action==='submit') {
       if (state.busy) return;
       state.busy=true; renderSurvey();
-      try { const result=await api(`/api/public/surveys/${state.survey.slug}/responses`,{method:'POST',body:{version:state.survey.version,answers:state.answers,meta:state.meta,submissionKey:state.key}}); state.submitted=true; state.receipt=result.receipt; state.dirty=false; }
+      try { const result=await submitSurvey(api,state.survey,{answers:state.answers,meta:state.meta,submissionKey:state.key}); state.submitted=true; state.receipt=result.receipt; state.dirty=false; }
       finally { state.busy=false; renderSurvey(); }
     }
   } catch(error) {
     if (error.status===401 && state.admin) {state.auth=null;return renderLogin('Vui lòng đăng nhập lại.');}
-    const el=document.querySelector('#survey-error'); if (el) el.innerHTML=errorBox(error.message); else toast(error.message);
+    const el=document.querySelector('#survey-error'); if (el) el.innerHTML=error.status===409 && !state.admin
+      ? '<div class="update-notice" role="alert"><p>Câu trả lời chưa được gửi vì khảo sát vừa được cập nhật. Các câu trả lời vẫn được giữ trên trang này.</p><button class="button primary small" data-action="refresh-survey">Cập nhật để gửi lại</button></div>'
+      : errorBox(error.message); else toast(error.message);
   }
 });
 app.addEventListener('input',event=>{if(!state.admin)inputAnswer(event.target);});

@@ -121,3 +121,22 @@ export function displayAnswer(q, a) {
   else text = a.value;
   return (text || '—') + (a.other ? ` (${a.other})` : '');
 }
+
+// Retry only when the questions and interpretation rules are unchanged.
+export function sameSurveyContent(left, right) {
+  const canonical = value => Array.isArray(value) ? value.map(canonical)
+    : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])) : value;
+  return ['questions','sections','analysis','kind','routingVersion'].every(key =>
+    JSON.stringify(canonical(left[key])) === JSON.stringify(canonical(right[key])));
+}
+export async function submitSurvey(api, survey, submission) {
+  const path = '/api/public/surveys/' + survey.slug;
+  const send = version => api(path + '/responses', {method:'POST',body:{...submission,version}});
+  try { return await send(survey.version); }
+  catch (error) {
+    if (error.status !== 409) throw error;
+    const latest = await api(path);
+    if (!sameSurveyContent(latest, survey)) throw error;
+    return await send(latest.version);
+  }
+}

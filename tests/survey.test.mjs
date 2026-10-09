@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from '../server.mjs';
 import { seedSurvey } from '../lib/seed.mjs';
 import { validateSubmission, validateSurvey } from '../lib/validation.mjs';
-import { visibleQuestions, answerError, timeCheck, eligibility } from '../public/logic.mjs';
+import { visibleQuestions, answerError, timeCheck, eligibility, submitSurvey } from '../public/logic.mjs';
 import { repairReferences } from '../public/editor.mjs';
 const ids = (answers,meta) => visibleQuestions(seedSurvey,answers,meta).map(q => q.id);
 const base = { S01:{value:0},S02:{value:0},S03:{value:0},Q01:{value:3} };
@@ -124,6 +124,19 @@ test('private APIs, CSRF, persistence, idempotence, versioning, export and accou
     const updated=await request('/api/admin/surveys/genai','PUT',{...config,title:'Tên khảo sát đã cập nhật'});assert.equal(updated.status,200);assert.equal(updated.value.version,2);
     assert.equal((await request('/api/public/surveys/genai/responses','POST',{...submission,submissionKey:crypto.randomUUID()})).status,409);
     const historic=(await request('/api/admin/surveys/genai/responses')).value;assert.equal(historic.responses[0].snapshot.title,seedSurvey.title);
+    const retryKey=crypto.randomUUID();
+    const clientApi=async(path,options={})=>{
+      const result=await request(path,options.method||'GET',options.body);
+      if(result.status>=400)throw Object.assign(new Error(result.value.error),{status:result.status});
+      return result.value;
+    };
+    const saved=await submitSurvey(clientApi,config,{...submission,submissionKey:retryKey});
+    assert(saved.receipt);
+    const repeated=await submitSurvey(clientApi,config,{...submission,submissionKey:retryKey});
+    assert.equal(repeated.receipt,saved.receipt);
+    const afterRetry=(await request('/api/admin/surveys/genai/responses')).value;
+    assert.equal(afterRetry.total,2);
+    assert(afterRetry.responses.some(r=>r.id===saved.receipt&&r.version===2));
     assert.equal((await request('/api/admin/surveys/genai','PUT',{...updated.value,status:'closed'})).status,200);
     assert.equal((await request('/api/public/surveys/genai')).status,410);
     assert.equal((await request('/api/public/surveys/genai/responses','POST',{...submission,version:3})).status,410);
@@ -142,7 +155,7 @@ test('private APIs, CSRF, persistence, idempotence, versioning, export and accou
     const immutableSnapshot=app.db.prepare('SELECT snapshot FROM responses LIMIT 1').get().snapshot;
     await new Promise(resolve=>app.server.close(resolve));app.db.close();
     app=createApp({dataDir:dir});
-    assert.equal(app.db.prepare('SELECT COUNT(*) AS n FROM responses').get().n,1);
+    assert.equal(app.db.prepare('SELECT COUNT(*) AS n FROM responses').get().n,2);
     assert.equal(app.db.prepare('SELECT COUNT(*) AS n FROM surveys').get().n,2);
     const migrated=app.db.prepare('SELECT config,version FROM surveys WHERE id=?').get('genai');
     assert.equal(migrated.version,legacyRow.version+1);assert.equal(JSON.parse(migrated.config).routingVersion,1);
@@ -151,3 +164,16 @@ test('private APIs, CSRF, persistence, idempotence, versioning, export and accou
   } finally { if(app.server.listening)await new Promise(resolve=>app.server.close(resolve));app.db.close();rmSync(dir,{recursive:true,force:true}); }
 });
 function readTemplate(){return JSON.stringify({title:'Mẫu mới',slug:'mau-moi',kind:'generic',status:'draft',sections:['Nội dung'],description:'',introduction:'',questions:[{id:'Q1',section:0,title:'Góp ý',help:'',type:'text',required:false}]});}
+
+test('submission retry refuses changed questions and retains the submission', async()=>{
+  const survey={slug:'test',version:1,questions:[{id:'Q1',title:'Old'}]};
+  const submission={answers:{Q1:{value:0}},submissionKey:'fixed-key'};
+  let posts=0;
+  const conflict=Object.assign(new Error('Changed'),{status:409});
+  await assert.rejects(submitSurvey(async(path,options)=>{
+    if(options){posts++;throw conflict;}
+    return {...survey,version:2,questions:[{id:'Q1',title:'New'}]};
+  },survey,submission),error=>error===conflict);
+  assert.equal(posts,1);
+  assert.deepEqual(submission.answers,{Q1:{value:0}});
+});
