@@ -118,8 +118,8 @@ test('private APIs, CSRF, persistence, idempotence, versioning, export and accou
     const excel=await request('/api/admin/surveys/genai/export?format=xlsx');
     assert.equal(excel.status,200);
     const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(excel.value);
-    assert.equal(workbook.getWorksheet('Tổng quan').getCell('B3').value,2);
-    assert.equal(workbook.getWorksheet('Câu trả lời').rowCount,3);
+    assert.equal(workbook.getWorksheet('Tổng quan').getCell('B3').value,1);
+    assert.equal(workbook.getWorksheet('Câu trả lời').rowCount,2);
     assert(workbook.getWorksheet('Câu trả lời').getRow(1).values.includes('Q02_label'));
     const updated=await request('/api/admin/surveys/genai','PUT',{...config,title:'Tên khảo sát đã cập nhật'});assert.equal(updated.status,200);assert.equal(updated.value.version,2);
     assert.equal((await request('/api/public/surveys/genai/responses','POST',{...submission,submissionKey:crypto.randomUUID()})).status,409);

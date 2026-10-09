@@ -21,6 +21,9 @@ try{
   await page.goto('http://localhost:3011/s/genai');
   await page.getByRole('heading',{name:'Bạn đã đủ 18 tuổi chưa?'}).waitFor();
   await page.screenshot({path:join(qa,'survey-desktop.png'),fullPage:true});
+  await page.getByRole('link',{name:'Admin',exact:true}).click();
+  await page.locator('#login-form').waitFor();
+  await page.goto('http://localhost:3011/s/genai');
   await select('S01',0);await select('S02',0);await select('S03',0);await next();
   await select('Q01',0);await select('Q02',0);await next();
   assert.equal(await page.locator('[data-question="Q26a"]').count(),6);
