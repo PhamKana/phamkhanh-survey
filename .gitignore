@@ -1,7 +1,7 @@
+data/*
+!data/.gitkeep
 node_modules/
-.next/
-public/opencv.js
-*.tsbuildinfo
-test-results/
-out/
-release/
+.env
+*.log
+tests/tmp-*/
+tests/qa/

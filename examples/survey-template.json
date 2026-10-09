@@ -1,0 +1,14 @@
+{
+  "title": "Khảo sát phản hồi",
+  "slug": "phan-hoi",
+  "kind": "generic",
+  "status": "draft",
+  "description": "Chia sẻ trải nghiệm và đề xuất của bạn.",
+  "introduction": "Bạn không cần đăng nhập. Câu trả lời chỉ dành cho quản trị viên khảo sát.",
+  "sections": ["Trải nghiệm", "Góp ý"],
+  "questions": [
+    { "id": "Q01", "section": 0, "title": "Bạn đã sử dụng dịch vụ bao lâu?", "help": "Chọn một đáp án.", "type": "single", "required": true, "options": ["Dưới 1 tháng", "1–6 tháng", "Trên 6 tháng"] },
+    { "id": "Q02", "section": 0, "title": "Bạn hài lòng ở mức nào?", "help": "0 là không hài lòng, 10 là rất hài lòng.", "type": "slider", "required": true, "min": 0, "max": 10, "step": 1, "unit": "points", "specials": ["Chưa đủ cơ sở đánh giá"] },
+    { "id": "Q03", "section": 1, "title": "Bạn muốn cải thiện điều gì?", "help": "Không ghi thông tin cá nhân hoặc nội dung có tính bảo mật.", "type": "text", "required": false }
+  ]
+}

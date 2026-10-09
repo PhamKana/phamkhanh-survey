@@ -1,0 +1,18 @@
+import { createInterface } from 'node:readline/promises';
+import { stdin, stdout } from 'node:process';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { openDatabase, hashPassword } from './lib/database.mjs';
+const root = dirname(fileURLToPath(import.meta.url));
+const prompt = createInterface({ input: stdin, output: stdout });
+const answer = await prompt.question('Đặt lại mật khẩu admin và đăng xuất mọi phiên? Nhập RESET để tiếp tục: ');
+prompt.close();
+if (answer !== 'RESET') process.exit(0);
+const db = openDatabase(join(root, 'data'));
+const password = randomBytes(18).toString('base64url');
+db.prepare('UPDATE admins SET password_hash=? WHERE username=?').run(hashPassword(password),'admin');
+db.prepare('DELETE FROM sessions').run(); db.close();
+writeFileSync(join(root,'data','admin-first-login.txt'), `Tên đăng nhập: admin\r\nMật khẩu: ${password}\r\nĐổi mật khẩu sau khi đăng nhập.\r\n`, { mode: 0o600 });
+console.log('Mật khẩu mới đã lưu tại data/admin-first-login.txt.');
