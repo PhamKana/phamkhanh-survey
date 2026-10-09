@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { openDatabase, verifyPassword, hashPassword, tokenHash } from './lib/database.mjs';
 import { validateSurvey, validateSubmission } from './lib/validation.mjs';
 import { displayAnswer } from './public/logic.mjs';
+import { exportWorkbook } from './lib/excel.mjs';
 import { seedSurvey } from './lib/seed.mjs';
 import { writeBatch } from './lib/schema.mjs';
 const root = dirname(fileURLToPath(import.meta.url));
@@ -162,6 +163,7 @@ export function createApp({ dataDir = join(root, 'data'), initialPassword, allow
             for (const q of questions.values()) { columns.push(q.id, `${q.id}_label`, `${q.id}_other`); if (q.type === 'allocation') q.options.forEach((_,i) => columns.push(`${q.id}_${i+1}_percent`)); }
             const cell = value => { let s = String(value ?? ''); if (/^[\s]*[=+@-]/.test(s) && typeof value !== 'number') s = "'" + s; return '"' + s.replaceAll('"','""') + '"'; };
             const csv = ['\uFEFF' + columns.map(cell).join(',')];
+            const records = [];
             for (const r of rows) {
               const answers = JSON.parse(r.answers), meta = JSON.parse(r.meta), snapshot = JSON.parse(r.snapshot);
               const values = { response_id: r.id, submitted_at: r.created_at, outcome: r.outcome, survey_version: r.version, saved_hours: meta.savedHours, time_conflict: meta.timeConflict, time_basis: meta.timeBasis, missing_saving_magnitude: meta.missingSavingMagnitude, job_other_review: meta.jobOtherReview };
@@ -170,7 +172,13 @@ export function createApp({ dataDir = join(root, 'data'), initialPassword, allow
                 values[`${q.id}_label`] = displayAnswer(q, a); values[`${q.id}_other`] = a.other;
                 if (q.type === 'allocation' && a.value) a.value.forEach((v,i) => { values[`${q.id}_${i+1}_percent`] = v; });
               }
+              records.push(columns.map(key => values[key] ?? null));
               csv.push(columns.map(key => cell(values[key])).join(','));
+            }
+            if (url.searchParams.get('format') === 'xlsx') {
+              const buffer = await exportWorkbook(survey, columns, records, rows);
+              res.writeHead(200, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="${survey.slug}-responses.xlsx"` });
+              return res.end(buffer);
             }
             res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="${survey.slug}-responses.csv"` });
             return res.end(csv.join('\r\n'));

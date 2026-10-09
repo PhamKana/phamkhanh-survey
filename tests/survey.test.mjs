@@ -1,3 +1,4 @@
+import ExcelJS from 'exceljs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -96,11 +97,12 @@ test('private APIs, CSRF, persistence, idempotence, versioning, export and accou
   let cookie='',csrf='';
   async function request(path,method='GET',body,extra={}) {
     const response=await fetch(origin+path,{method,headers:{...(body?{'Content-Type':'application/json',Origin:origin}:{}),...(cookie?{Cookie:cookie,'X-CSRF-Token':csrf}:{}),...extra},body:body?JSON.stringify(body):undefined});
-    const text=await response.text();let value;try{value=JSON.parse(text);}catch{value=text;}
+    const binary=response.headers.get('content-type')?.includes('spreadsheetml');
+    const text=binary ? Buffer.from(await response.arrayBuffer()) : await response.text();let value;try{value=binary ? text : JSON.parse(text);}catch{value=text;}
     return{status:response.status,value,headers:response.headers};
   }
   try {
-    for(const path of ['/api/admin/surveys','/api/admin/surveys/genai/responses','/api/admin/surveys/genai/export','/api/admin/surveys/genai/schema'])assert.equal((await request(path)).status,401);
+    for(const path of ['/api/admin/surveys','/api/admin/surveys/genai/responses','/api/admin/surveys/genai/export','/api/admin/surveys/genai/export?format=xlsx','/api/admin/surveys/genai/schema'])assert.equal((await request(path)).status,401);
     for(const path of ['/data/survey.sqlite','/data/admin-first-login.txt','/server.mjs','/.git/config','/api/public/surveys/genai/responses'])assert.equal((await request(path)).status,404);
     assert.equal((await request('/api/auth/login','POST',{username:'admin',password}, {Origin:'https://evil.example'})).status,403);
     const login=await request('/api/auth/login','POST',{username:'admin',password});assert.equal(login.status,200);
@@ -113,6 +115,12 @@ test('private APIs, CSRF, persistence, idempotence, versioning, export and accou
     assert.equal((await request('/api/public/surveys/genai/responses','POST',submission)).status,200);
     const responses=(await request('/api/admin/surveys/genai/responses')).value;assert.equal(responses.total,1);assert(!responses.responses[0].answers.Q28);
     const exportResult=await request('/api/admin/surveys/genai/export');assert.equal(exportResult.status,200);assert(exportResult.value.includes('Q02_label'));assert(exportResult.value.includes('Chưa rõ AI'));
+    const excel=await request('/api/admin/surveys/genai/export?format=xlsx');
+    assert.equal(excel.status,200);
+    const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(excel.value);
+    assert.equal(workbook.getWorksheet('Tổng quan').getCell('B3').value,2);
+    assert.equal(workbook.getWorksheet('Câu trả lời').rowCount,3);
+    assert(workbook.getWorksheet('Câu trả lời').getRow(1).values.includes('Q02_label'));
     const updated=await request('/api/admin/surveys/genai','PUT',{...config,title:'Tên khảo sát đã cập nhật'});assert.equal(updated.status,200);assert.equal(updated.value.version,2);
     assert.equal((await request('/api/public/surveys/genai/responses','POST',{...submission,submissionKey:crypto.randomUUID()})).status,409);
     const historic=(await request('/api/admin/surveys/genai/responses')).value;assert.equal(historic.responses[0].snapshot.title,seedSurvey.title);

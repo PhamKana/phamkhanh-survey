@@ -15,7 +15,8 @@
     "reset-password": "node reset-password.mjs"
   },
   "dependencies": {
-    "@neondatabase/serverless": "1.2.0"
+    "@neondatabase/serverless": "1.2.0",
+    "exceljs": "4.4.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8"
