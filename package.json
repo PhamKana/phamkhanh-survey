@@ -3,7 +3,18 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Khảo sát công khai và quản trị dữ liệu riêng tư, chạy local với Node.js và SQLite.",
-  "engines": { "node": ">=24.0.0" },
-  "scripts": { "start": "node server.mjs", "test": "node --test tests/*.test.mjs", "reset-password": "node reset-password.mjs" }
+  "description": "Khảo sát công khai, quản trị riêng tư; hỗ trợ Vercel với Turso và chạy local với SQLite.",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "build": "node scripts/build.mjs",
+    "vercel-build": "npm run build",
+    "test": "node --test tests/*.test.mjs",
+    "reset-password": "node reset-password.mjs"
+  },
+  "dependencies": {
+    "@libsql/client": "0.18.0"
+  }
 }

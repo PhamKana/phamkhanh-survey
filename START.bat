@@ -8,6 +8,12 @@ if errorlevel 1 (
 )
 echo Survey: http://localhost:3000/s/genai
 echo Admin:  http://localhost:3000/admin
-echo Tai khoan lan dau: data\admin-first-login.txt
-node server.mjs
+if not exist "node_modules\@libsql\client\package.json" (
+  call npm ci
+  if errorlevel 1 (
+    pause
+    exit /b 1
+  )
+)
+call npm start
 pause

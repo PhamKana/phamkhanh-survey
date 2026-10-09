@@ -1,6 +1,8 @@
 # Survey Studio
 
-Web khảo sát chạy trên máy, có trang trả lời công khai và tài khoản admin riêng. Toàn bộ mã nguồn, tài liệu và dữ liệu nằm trong thư mục `survey`. Cần Node.js 24 trở lên; không cần cài thêm thư viện.
+**Bản này đã hỗ trợ Vercel + Turso.** Xem [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md) để cấu hình database, tài khoản admin và deploy. Vercel dùng `api/index.js` và `vercel.json`, không chạy `next build`. Build bằng `npm run build`; kiểm tra bằng `npm test` sau khi cài thư viện với `npm ci`.
+
+Web khảo sát có trang trả lời công khai và tài khoản admin riêng. Toàn bộ mã nguồn và tài liệu nằm trong thư mục `app-scan-nh`. Cần Node.js 24 và cài thư viện bằng `npm ci`. Có thể chạy local bằng SQLite hoặc chạy online trên Vercel bằng Turso. Các phần bên dưới mô tả chế độ local; hướng dẫn online nằm trong `DEPLOY-VERCEL.md`.
 
 ## Chạy và đăng nhập
 
